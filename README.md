@@ -1,42 +1,62 @@
 # Onchain Equity Route Advisor
 
-**A Claude/Codex Agent Skill for answering one practical RWA question:**
+**Execution-readiness intelligence for tokenized equities.**
 
-> If I want to hold a tokenized stock such as SPCXx, where can I buy it, at what size, at what cost, and with what product risk?
+Built for **Mantle Research Challenge Track 2**, this repository packages an Agent Skill and deterministic CLI that answer a simple question users actually care about:
 
-Built for **Mantle Research Challenge Track 2**.
+> If I want exposure to a tokenized stock such as SPCXx, where can I buy it, how much will it cost at 1k / 5k / 10k size, and what am I really holding?
 
-This is not an investment bot. It is an execution-readiness research layer for tokenized equities: CEX spot, perps, alternative RWA tokens, and Mantle onchain routes are compared under one repeatable method.
+The answer is not just a price quote. It requires order-book depth, spread, fees, funding history, product classification, onchain route availability, RFQ status, and a clear distinction between "deployed" and "execution-ready."
 
-## 30-Second Summary
+This project turns that into a repeatable research workflow for Claude, Codex, and other Agent Skills-compatible runtimes.
 
-Tokenized stock research usually stops too early:
+## Why This Exists
 
-- the asset exists,
-- the contract is deployed,
+Tokenized stock research often stops at the wrong layer:
+
+- the ticker exists,
+- the asset is deployed,
 - a pool is visible,
-- a quote API says yes or no.
+- a public quote endpoint returns either success or failure.
 
-That is not enough for a user deciding whether to buy and hold.
+That is useful, but it does not answer the user question.
 
-`onchain-equity-route-advisor` checks whether a route is actually usable at **1,000 / 5,000 / 10,000 USD** size, separates spot from perps and lookalike RWA products, adds funding history for perps, and falls back from public Mantle quote APIs to direct onchain quoter reads when needed.
+A real user asks:
 
-The key design:
+> Can I buy 1,000, 5,000, or 10,000 USD of this tokenized equity right now, through which route, at what total cost, and with what trade-offs?
+
+`onchain-equity-route-advisor` was built for that layer. It compares CEX spot, perps, alternative RWA tokens, pre-market products, and Mantle onchain routes under the same execution-quality framework.
+
+## What It Does
+
+The skill separates the pieces that usually get mixed together:
+
+- Exact xStocks spot vs alternative RWA tokens vs pre-market products
+- CEX order-book depth at 1k / 5k / 10k USD size
+- Round-trip execution cost in basis points
+- Perp funding over 7 / 14 / 30 day windows
+- Mantle deployment metadata
+- Fluxion public quote preflight
+- Merchant Moe LBQuoter direct Mantle RPC fallback
+- xChange / RFQ authenticated-route status
+- Pool telemetry vs executable quote evidence
+- Data confidence, missing evidence, and route caveats
+
+The core path is:
 
 ```text
-Tokenized equity route
-  -> classify product type
+Classify the product
   -> simulate size-specific execution cost
-  -> add holding-cost layer
-  -> check Mantle deployment and public quote route
-  -> fallback to Merchant Moe LBQuoter on Mantle RPC
-  -> separate executable quote from pool telemetry
+  -> add holding-cost and funding layers
+  -> check Mantle deployment and public quote availability
+  -> fallback to Merchant Moe LBQuoter via Mantle RPC
+  -> separate executable quotes from pool telemetry
   -> rank only comparable, executable routes
 ```
 
-## Judge Quick Start
+## Quick Start For Reviewers
 
-Clone it and run the skill directly:
+Clone the repository and run the live SPCXx comparison:
 
 ```bash
 git clone https://github.com/PKCrox/onchain-equity-route-advisor
@@ -60,91 +80,92 @@ Fluxion quotes, Merchant Moe LBQuoter fallback, xChange auth status,
 and a concise long-hold verdict.
 ```
 
-The run emits:
+The output is designed for human review, not just machine parsing:
 
-- `report.md` - human-readable verdict
-- `cost-table.csv` - route-by-size bps table
-- `analysis.json` - structured recommendation and warnings
+- `report.md` - concise route verdict
+- `cost-table.csv` - route-by-size cost table
+- `analysis.json` - structured recommendation, confidence, warnings, and source evidence
 - `mantle-route-check.md` - Mantle deployment, quote, LBQuoter, pool, and xChange evidence
 - `mantle-skill-chain.md` - how the workflow maps onto Mantle Agent Skills
 
-## Live Example: SPCXx
+## Working Example: SPCXx
 
-Sample focused run: **2026-07-04 00:14 KST**. Re-run the command above to refresh the market data.
+Sample focused run: **2026-07-04 00:14 KST**. Market data moves, so the command above should be treated as the source of truth for a fresh run.
 
-Costs below are estimated round-trip costs in basis points for buying and later exiting the same notional size.
+Estimated round-trip cost in basis points:
 
-| Route | 1k USD | 5k USD | 10k USD | What it means |
+| Route | 1k USD | 5k USD | 10k USD | Interpretation |
 |---|---:|---:|---:|---|
 | Bybit spot | 25.8 bps | 31.7 bps | 33.0 bps | Best exact xStocks spot route at 5k/10k in this run |
 | LBank spot | 25.9 bps | 32.3 bps | 40.0 bps | Very close at 1k; weaker at 10k |
 | Gate spot | 31.1 bps | 37.9 bps | 43.9 bps | Higher than Bybit/LBank across sizes |
-| Bitget Pre | 29.0 bps | 37.2 bps | 43.6 bps | Pre-market product, not exact xStocks spot |
+| Bitget Pre | 29.0 bps | 37.2 bps | 43.6 bps | Cheap-looking, but pre-market exposure, not exact xStocks spot |
 | Bitget RWA | 143.5 bps | 170.4 bps | 204.6 bps | Alternative RWA product, not treated as identical exposure |
 | MEXC ON | 187.6 bps | 510.1 bps | 1070.6 bps | Cost expands sharply with size |
 | Mantle SPCXx/USDT0 | 1924.4 bps | no executable quote | no executable quote | 1k quote found via LBQuoter; larger public route depth not found |
 | Bybit Perp | 104.3 bps | 105.3 bps | 106.4 bps | Includes 30d funding; synthetic exposure |
 | Binance Perp | 126.6 bps | 127.2 bps | 128.0 bps | Includes 30d funding; synthetic exposure |
 
-The point is not "pick the lowest number." The skill explains why each route belongs, or does not belong, in the same comparison set:
+The conclusion is intentionally not "pick the lowest number."
 
-- Exact xStocks spot routes are comparable with each other.
-- Pre-market and alternative RWA products are not assumed to be identical.
-- Perps are not spot ownership; funding history changes the long-hold cost.
-- Onchain pool visibility is not the same as executable depth at 5k or 10k.
+The skill explains why a route is, or is not, comparable:
 
-## Mantle Result
+- Exact xStocks spot routes can be ranked against each other.
+- Pre-market and alternative RWA products may be useful, but they are not treated as identical exposure.
+- Perps can look cheap at entry, but 30-day funding changes the holding-cost picture.
+- A visible onchain pool is not the same as executable depth at 5k or 10k.
 
-For SPCXx, the Mantle route check found:
+## Mantle Route Readiness
 
-- SPCXx Mantle deployment confirmed.
-- xStocks metadata indicated atomic-swap support.
+For SPCXx, the Mantle check found:
+
+- SPCXx deployment on Mantle confirmed.
+- xStocks metadata indicates atomic-swap support.
 - Fluxion public quote returned `NO_LIQUIDITY_POOL` for 1k / 5k / 10k.
 - Merchant Moe LBQuoter direct Mantle RPC fallback found an executable **1k** `USDT0 -> SPCXx` quote.
-- 5k and 10k returned `NO_LB_ROUTE` in the public onchain path.
+- 5k and 10k returned `NO_LB_ROUTE` through the public onchain path.
 - Merchant Moe pool proxy showed about **$3.25k liquidity**, **$708 24h volume**, and **11 24h transactions** at run time.
-- xChange/RFQ remained an authenticated layer requiring API-key access.
+- xChange / RFQ remained an authenticated layer requiring API-key access.
 
-So the result was not reduced to "Mantle works" or "Mantle fails." It was classified as:
+That result is more useful than a binary "works" or "fails."
 
-> Mantle SPCXx is deployed and a 1k public onchain quote can be read through LBQuoter, but larger public-route depth was not available in this run. Larger sizes should be routed through RFQ or deeper liquidity before being recommended as execution-ready.
+It shows that Mantle has the deployment and route components needed for tokenized equity distribution, while the current public route still needs deeper liquidity or RFQ access before larger sizes can be called execution-ready.
 
-That is exactly the missing middle layer this skill adds: **deployment -> execution readiness -> size-specific route quality**.
+In other words:
 
-## How It Uses Mantle Agent Skills
+```text
+Issuance is visible.
+The 1k onchain quote path is measurable.
+The 5k/10k public route is not ready yet.
+The next layer is RFQ, liquidity depth, and distribution-quality monitoring.
+```
 
-This project follows the role split of Mantle's Agent Skills and adds a route-quality layer for tokenized equities.
+That is the exact gap this skill is meant to expose and improve.
+
+## How This Uses Mantle Agent Skills
+
+This project follows the role split of Mantle's official Agent Skills, then adds a tokenized-equity execution-readiness layer on top.
+
+Official Mantle Skills reference: https://github.com/mantle-xyz/mantle-skills
 
 | Mantle Skill Layer | Role in this advisor |
 |---|---|
-| `mantle-defi-operator` | Route discovery and compare-only execution boundaries |
-| `mantle-risk-evaluator` | Liquidity, slippage, partial-fill, funding, and product-risk caveats |
-| `mantle-readonly-debugger` | Preserve quote failures and RPC read-path evidence instead of hiding them |
-| `mantle-data-indexer` | Extension path for pool volume, swap history, and liquidity time windows |
+| `mantle-defi-operator` | Discover Mantle routes and keep the tool in compare-only mode unless executable evidence exists |
+| `mantle-risk-evaluator` | Convert liquidity, slippage, funding, and partial-fill problems into clear route caveats |
+| `mantle-readonly-debugger` | Preserve failed quote/RPC paths as evidence instead of hiding them |
+| `mantle-data-indexer` | Extension point for pool volume, swap history, and time-windowed liquidity |
+| `mantle-portfolio-analyst` | Optional wallet-specific follow-up when a user wants position-level analysis |
 
-The added execution-readiness layer is:
+The added layer is deliberately practical:
 
 ```text
 Public quote failure is not the end.
 Try a direct onchain quoter.
 Separate telemetry from executable quote.
-Show which notional sizes work and which do not.
+Show which sizes work and which sizes are blocked.
 ```
 
-This matters for Mantle because tokenized equities need more than issuance. They need transparent distribution quality: how much can be bought, where, at what cost, with which route, and when RFQ/liquidity support is required.
-
-## What It Compares
-
-- CEX spot order books
-- 1k / 5k / 10k USD round-trip execution cost
-- Perp funding over 7 / 14 / 30 day windows
-- Exact xStocks vs alternative RWA tokens vs pre-market tokens
-- Mantle xStocks deployment metadata
-- Fluxion public quote preflight
-- Merchant Moe LBQuoter direct Mantle RPC fallback
-- xStocks xChange / RFQ authentication status
-- Pool telemetry vs executable quote evidence
-- Data-confidence and route caveats
+This is why the project is a skill, not just a static dashboard. The useful output is the judgment layer between raw APIs and the final recommendation.
 
 ## Install As An Agent Skill
 
@@ -168,7 +189,7 @@ npm install
 
 ### claude.ai
 
-Download the latest skill ZIP from Releases:
+Download the latest ZIP from Releases:
 
 https://github.com/PKCrox/onchain-equity-route-advisor/releases
 
@@ -178,11 +199,9 @@ Then upload it in:
 Customize -> Skills -> Create skill -> Upload skill
 ```
 
-Enable the skill and ask the same natural-language route question.
+Enable the skill and ask the SPCXx comparison prompt above.
 
 ## Run A Broader Scan
-
-Scan currently discoverable xStocks-style venues:
 
 ```bash
 npm run advisor -- \
@@ -221,14 +240,22 @@ MANTLE_QUOTE_WALLET=0x...
 XSTOCKS_API_KEY=...
 ```
 
+## Design Principles
+
+- Do not rank incomparable products together without labeling the difference.
+- Do not treat perps as spot ownership.
+- Do not use a single current funding print as long-hold evidence.
+- Do not call an onchain route cheap unless an executable quote exists for the requested size.
+- Do not stop at a failed public quote if a direct read-only onchain quoter can be queried.
+- Do not hide missing data; mark it as unavailable, manual-check, or authenticated-layer required.
+
 ## What This Does Not Claim
 
 - It does not give investment advice.
-- It does not claim tokenized stocks have identical rights across issuers.
-- It does not treat pre-market or alternative RWA tokens as exact xStocks substitutes.
-- It does not treat perps as spot/token ownership.
+- It does not claim tokenized stocks have identical legal rights across issuers.
+- It does not treat pre-market or alternative RWA products as exact xStocks substitutes.
 - It does not sign or broadcast Mantle transactions.
-- It does not call a route "cheap" unless executable quote or order-book evidence exists for the requested size.
+- It does not claim xChange/RFQ pricing without API-key access.
 
 ## Repository Layout
 
@@ -248,7 +275,7 @@ scripts/
 
 ## Verification
 
-The public skill package is expected to pass:
+The public skill package should pass:
 
 ```bash
 npm install
@@ -261,6 +288,17 @@ The full challenge workspace also runs:
 npm test
 npm run validate-skill
 ```
+
+## Submission Fit
+
+Mantle Research Challenge Track 2 asks for a research agent, workflow, script, dashboard, or guide that helps people conduct onchain finance research.
+
+This submission contributes a working Agent Skill that makes tokenized-equity distribution measurable:
+
+- what the tool does: route-quality analysis for tokenized stocks,
+- why it is useful: it separates issuance from execution readiness,
+- how it is built: deterministic adapters plus Mantle Agent Skill-style reasoning layers,
+- working case: SPCXx across CEX spot, perps, and Mantle onchain routes.
 
 ## License
 
