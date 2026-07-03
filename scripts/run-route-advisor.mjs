@@ -68,12 +68,12 @@ function parseArgs(argv) {
 
 function helpText() {
   return `Usage:
-  node mantle-research-challenge/scripts/run-route-advisor.mjs \\
+  npm run advisor -- \\
     --symbols auto \\
     --sizes 1000,5000,10000 \\
     --holding-days 7,14,30 \\
     --format markdown,json \\
-    --output-dir mantle-research-challenge/artifacts/latest
+    --output-dir artifacts/latest
 
 Options:
   --symbols        Comma-separated xStocks symbols or "auto".

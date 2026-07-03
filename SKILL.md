@@ -43,13 +43,6 @@ npm run advisor -- \
   --output-dir artifacts/latest-auto
 ```
 
-If the repo wrapper is used instead of the installed skill folder:
-
-```bash
-cd mantle-research-challenge
-npm run advisor -- --symbols SPCXx --sizes 1000,5000,10000 --holding-days 7,14,30 --format markdown,json
-```
-
 Key output files:
 
 - `report.md`: human-readable verdict and cost table.
@@ -74,7 +67,7 @@ Key output files:
      --sizes 1000,5000,10000 \
      --holding-days 7,14,30 \
      --format markdown,json \
-     --output-dir mantle-research-challenge/artifacts/latest
+     --output-dir artifacts/latest
    ```
 
 3. Use the route layers in order.
