@@ -84,6 +84,8 @@ Example global smoke run:
 
 Sample command: `--symbols auto --max-symbols 3 --sizes 1000`
 
+The exact venues and bps values move with live order books. One sample run produced:
+
 | Asset | Best 1k route in smoke run | 1k round-trip cost | Mantle readiness signal |
 |---|---|---:|---|
 | NVDAx | Bybit spot | 27.1 bps | Mantle deployment confirmed; Fluxion `NO_LIQUIDITY_POOL`; LBQuoter `NO_LB_ROUTE`; RFQ key required |

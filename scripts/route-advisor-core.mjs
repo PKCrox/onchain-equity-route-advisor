@@ -1334,6 +1334,8 @@ export function analyzeSnapshot(snapshot, {
     recommendations.push(buildRecommendation(symbolSnapshot, scores, symbolRows, { sizes, holdingDays, intent }));
   }
 
+  const routeChecks = summarizeRouteChecks(snapshot.symbols || [], sizes);
+  const coverage = summarizeCoverage(costRows);
   return {
     generatedAt: snapshot.generatedAt,
     intent,
@@ -1349,9 +1351,10 @@ export function analyzeSnapshot(snapshot, {
     recommendations,
     venueScores,
     costRows,
-    routeChecks: summarizeRouteChecks(snapshot.symbols || []),
+    routeChecks,
     sources: snapshot.sources || [],
-    coverage: summarizeCoverage(costRows),
+    coverage,
+    readiness: summarizeReadiness(costRows, routeChecks, recommendations),
     disclaimer: 'Execution and holding-cost analysis only. Not investment advice.',
   };
 }
@@ -1435,7 +1438,44 @@ function summarizeCoverage(costRows) {
   };
 }
 
-function summarizeRouteChecks(symbolSnapshots) {
+function summarizeReadiness(costRows, routeChecks, recommendations) {
+  const symbols = [...new Set(costRows.map((row) => row.symbol).filter(Boolean))];
+  const exactSpotSymbols = uniqueSymbols(costRows.filter((row) =>
+    row.status === 'ok' &&
+    row.routeType === 'cex_spot' &&
+    row.productClass === 'spot_tokenized_stock'));
+  const alternativeSymbols = uniqueSymbols(costRows.filter((row) =>
+    row.status === 'ok' &&
+    (row.productClass === 'tokenized_stock_alt' || row.productClass === 'pre_market_stock_alt')));
+  const perpSymbols = uniqueSymbols(costRows.filter((row) => row.status === 'ok' && row.routeType === 'perp'));
+  const mantleChecks = (routeChecks || []).filter((check) => check.venue === 'Mantle xStocks');
+  const mantleDeployedSymbols = uniqueSymbols(mantleChecks.filter((check) =>
+    (check.confirmed || []).some((item) => item.includes('배포 확인'))));
+  const mantleExecutableSymbols = uniqueSymbols(costRows.filter((row) =>
+    row.status === 'ok' && row.venue === 'Mantle xStocks'));
+  const mantleRfqRequiredSymbols = uniqueSymbols(mantleChecks.filter((check) =>
+    [...(check.missing || []), ...(check.execution || [])].some((item) => /API key|RFQ/u.test(item))));
+  const topRoutes = (recommendations || [])
+    .filter((recommendation) => recommendation.best)
+    .map((recommendation) => `${recommendation.symbol}: ${recommendation.best.venue} ${formatBps(recommendation.best.representativeCostBps)}`);
+
+  return {
+    symbols: symbols.length,
+    exactSpotSymbols,
+    alternativeSymbols,
+    perpSymbols,
+    mantleDeployedSymbols,
+    mantleExecutableSymbols,
+    mantleRfqRequiredSymbols,
+    topRoutes,
+  };
+}
+
+function uniqueSymbols(rowsOrChecks) {
+  return [...new Set((rowsOrChecks || []).map((item) => item.symbol).filter(Boolean))].sort();
+}
+
+function summarizeRouteChecks(symbolSnapshots, requestedSizes = DEFAULT_SIZES) {
   const checks = [];
   for (const symbolSnapshot of symbolSnapshots) {
     for (const venue of symbolSnapshot.venues || []) {
@@ -1452,7 +1492,7 @@ function summarizeRouteChecks(symbolSnapshots) {
       if (venue.deployment?.stablecoins?.length) {
         confirmed.push(`${venue.deployment.stablecoins.join('/')} route 메타데이터`);
       }
-      const execution = routeExecutionFindings(venue);
+      const execution = routeExecutionFindings(venue, requestedSizes);
       if (venue.status === 'manual_check') {
         missing.push('실행 가능한 RFQ/AMM quote 미호출');
         missing.push('1k/5k/10k pool depth와 slippage 미측정');
@@ -1472,6 +1512,7 @@ function summarizeRouteChecks(symbolSnapshots) {
         nextEvidence.push('xStocks deployment metadata 재확인');
       } else {
         const unavailableSizes = Object.entries(venue.quoteBySize || {})
+          .filter(([size]) => requestedSizes.includes(Number(size)))
           .filter(([, quote]) => quote?.status !== 'ok')
           .map(([size]) => `${size} USD`);
         if (unavailableSizes.length) {
@@ -1505,11 +1546,13 @@ function summarizeRouteChecks(symbolSnapshots) {
   return checks;
 }
 
-function routeExecutionFindings(venue) {
+function routeExecutionFindings(venue, requestedSizes = DEFAULT_SIZES) {
   const findings = [];
   const fluxion = venue.executionEvidence?.fluxion;
   if (fluxion?.quoteBySize) {
-    const quoteFindings = Object.entries(fluxion.quoteBySize).map(([size, quote]) => {
+    const quoteFindings = Object.entries(fluxion.quoteBySize)
+      .filter(([size]) => requestedSizes.includes(Number(size)))
+      .map(([size, quote]) => {
       if (quote.status === 'ok') {
         return `${size}: Fluxion quote ok via ${quote.stablecoin}, roundtrip ${formatBps(((Number(size) - quote.usdcBack) / Number(size)) * 10000)}`;
       }
@@ -1519,7 +1562,9 @@ function routeExecutionFindings(venue) {
   }
   const merchantMoe = venue.executionEvidence?.merchantMoe;
   if (merchantMoe?.quoteBySize) {
-    const quoteFindings = Object.entries(merchantMoe.quoteBySize).map(([size, quote]) => {
+    const quoteFindings = Object.entries(merchantMoe.quoteBySize)
+      .filter(([size]) => requestedSizes.includes(Number(size)))
+      .map(([size, quote]) => {
       if (quote.status === 'ok') {
         const route = quote.buyPathSymbols?.join('->') || quote.stablecoin || 'route';
         return `${size}: Merchant Moe LBQuoter ok via ${route}, roundtrip ${formatBps(((Number(size) - quote.usdcBack) / Number(size)) * 10000)}`;
@@ -1746,11 +1791,7 @@ function csvValue(value) {
 export function renderMarkdown(analysis) {
   const lines = [];
   lines.push('**결론**');
-  const topSummaries = analysis.recommendations.map((recommendation) => {
-    if (!recommendation.best) return `${recommendation.symbol}: 실행 가능한 공개 quote가 부족합니다.`;
-    return `${recommendation.symbol}: ${recommendation.best.venue} (${recommendation.best.marketSymbol})가 현재 ${intentLabel(analysis.intent)} 기준 1순위입니다.`;
-  });
-  lines.push(topSummaries.join(' '));
+  lines.push(renderConclusion(analysis));
   lines.push('');
   lines.push(`기준 시각: ${analysis.generatedAt}`);
   if (analysis.coverage) {
@@ -1758,18 +1799,24 @@ export function renderMarkdown(analysis) {
     const manualVenues = analysis.coverage.manualVenues?.length ? ` / 수동·미확인: ${analysis.coverage.manualVenues.join(', ')}` : '';
     lines.push(`비교군: ${executableVenues}${manualVenues} (${analysis.coverage.symbols}개 종목, 실행 가능 row ${analysis.coverage.executableRows}개, 수동·미확인 row ${analysis.coverage.manualRows || 0}개)`);
   }
+  const readiness = renderReadinessSummary(analysis.readiness);
+  if (readiness) {
+    lines.push('');
+    lines.push(readiness);
+  }
   lines.push('');
   lines.push('**비용 비교**');
-  lines.push('| 종목 | 추천 경로 | 1k | 5k | 10k | 신뢰도 | 핵심 이유 |');
-  lines.push('|---|---:|---:|---:|---:|---:|---|');
+  const displaySizes = (analysis.sizes?.length ? analysis.sizes : DEFAULT_SIZES);
+  lines.push(`| 종목 | 추천 경로 | ${displaySizes.map(formatSizeHeader).join(' | ')} | 신뢰도 | 핵심 이유 |`);
+  lines.push(`|---|---:|${displaySizes.map(() => '---:').join('|')}|---:|---|`);
   for (const recommendation of analysis.recommendations) {
     const bestRoute = recommendation.best ? `${recommendation.best.venue} / ${productLabel(recommendation.best.productClass)}` : 'n/a';
-    const cells = [1000, 5000, 10000].map((size) => formatCostCell(recommendation.sizeSummary?.[size]));
+    const cells = displaySizes.map((size) => formatCostCell(recommendation.sizeSummary?.[size]));
     const confidence = recommendation.best ? `${Math.round(recommendation.best.dataConfidence ?? 0)}/100 ${recommendation.best.dataQuality || ''}` : 'n/a';
     const why = recommendation.best
       ? `${recommendation.best.representativeSizeUsd} USD 기준 ${formatBps(recommendation.best.representativeCostBps)}, 상품 적합도 ${Math.round(recommendation.best.productFit)}/100`
       : '실행 가능한 공개 경로 부족';
-    lines.push(`| ${recommendation.symbol} | ${bestRoute} | ${cells[0]} | ${cells[1]} | ${cells[2]} | ${confidence} | ${why} |`);
+    lines.push(`| ${recommendation.symbol} | ${bestRoute} | ${cells.join(' | ')} | ${confidence} | ${why} |`);
   }
   const routeCheckMarkdown = renderRouteChecksSection(analysis.routeChecks || []);
   if (routeCheckMarkdown) {
@@ -1795,6 +1842,45 @@ export function renderMarkdown(analysis) {
   lines.push('');
   lines.push('투자 권유가 아니라 실행 비용, 보유 비용, 상품 구조 비교입니다.');
   return lines.join('\n');
+}
+
+function renderConclusion(analysis) {
+  const recommendations = analysis.recommendations || [];
+  if (recommendations.length > 3) {
+    const topRoutes = (analysis.readiness?.topRoutes || []).slice(0, 5);
+    const topText = topRoutes.length ? ` 상위 route: ${topRoutes.join('; ')}.` : '';
+    return `${recommendations.length}개 tokenized-equity 후보를 ${intentLabel(analysis.intent)} 기준으로 스캔했습니다.${topText}`;
+  }
+  const topSummaries = recommendations.map((recommendation) => {
+    if (!recommendation.best) return `${recommendation.symbol}: 실행 가능한 공개 quote가 부족합니다.`;
+    return `${recommendation.symbol}: ${recommendation.best.venue} (${recommendation.best.marketSymbol})가 현재 ${intentLabel(analysis.intent)} 기준 1순위입니다.`;
+  });
+  return topSummaries.join(' ');
+}
+
+function renderReadinessSummary(readiness) {
+  if (!readiness || readiness.symbols <= 1) return '';
+  const rows = [
+    ['스캔 종목', `${readiness.symbols}개`, '전역 discovery 범위'],
+    ['정확 xStocks 현물 실행 가능', `${readiness.exactSpotSymbols.length}개`, summarizeSymbolList(readiness.exactSpotSymbols)],
+    ['대체 RWA/pre-market 실행 가능', `${readiness.alternativeSymbols.length}개`, summarizeSymbolList(readiness.alternativeSymbols)],
+    ['Perp 노출 존재', `${readiness.perpSymbols.length}개`, '장기 보유 추천군과 분리'],
+    ['Mantle 배포 확인', `${readiness.mantleDeployedSymbols.length}개`, summarizeSymbolList(readiness.mantleDeployedSymbols)],
+    ['Mantle public quote 실행 가능', `${readiness.mantleExecutableSymbols.length}개`, summarizeSymbolList(readiness.mantleExecutableSymbols)],
+    ['RFQ/API-key layer 필요', `${readiness.mantleRfqRequiredSymbols.length}개`, summarizeSymbolList(readiness.mantleRfqRequiredSymbols)],
+  ];
+  return [
+    '**실행 준비도 요약**',
+    '| 항목 | 결과 | 해석 |',
+    '|---|---:|---|',
+    ...rows.map(([label, value, note]) => `| ${label} | ${value} | ${note} |`),
+  ].join('\n');
+}
+
+function summarizeSymbolList(symbols, max = 5) {
+  if (!symbols?.length) return '없음';
+  const shown = symbols.slice(0, max).join(', ');
+  return symbols.length > max ? `${shown} 외 ${symbols.length - max}개` : shown;
 }
 
 export function renderRouteChecksMarkdown(analysis) {
@@ -1859,6 +1945,11 @@ function productLabel(productClass) {
     pre_market_stock_alt: '프리마켓 대체 토큰',
     perpetual_future: '무기한 선물',
   }[productClass] || productClass;
+}
+
+function formatSizeHeader(sizeUsd) {
+  if (sizeUsd >= 1000 && sizeUsd % 1000 === 0) return `${sizeUsd / 1000}k`;
+  return `${sizeUsd} USD`;
 }
 
 function koreanizeMissing(text) {

@@ -16,7 +16,7 @@ import {
 
 function parseArgs(argv) {
   const args = {
-    symbols: ['SPCXx'],
+    symbols: ['auto'],
     sizes: DEFAULT_SIZES,
     holdingDays: DEFAULT_HOLDING_DAYS,
     format: ['markdown'],
@@ -63,6 +63,10 @@ function parseArgs(argv) {
   if (!args.sizes.length) throw new Error('--sizes must include at least one number');
   if (!args.holdingDays.length) throw new Error('--holding-days must include at least one number');
   if (!args.format.length) throw new Error('--format must include markdown and/or json');
+  if (!Number.isInteger(args.maxSymbols) || args.maxSymbols < 1) throw new Error('--max-symbols must be a positive integer');
+  const allowedFormats = new Set(['markdown', 'json']);
+  const invalidFormats = args.format.filter((format) => !allowedFormats.has(format));
+  if (invalidFormats.length) throw new Error(`--format only supports markdown,json. Invalid: ${invalidFormats.join(',')}`);
   return args;
 }
 
@@ -70,6 +74,7 @@ function helpText() {
   return `Usage:
   npm run advisor -- \\
     --symbols auto \\
+    --max-symbols 12 \\
     --sizes 1000,5000,10000 \\
     --holding-days 7,14,30 \\
     --format markdown,json \\
@@ -77,6 +82,7 @@ function helpText() {
 
 Options:
   --symbols        Comma-separated xStocks symbols or "auto".
+  --max-symbols    Maximum symbols to include when --symbols auto is used.
   --sizes          USD notional sizes to simulate.
   --holding-days   Funding/holding windows for perp routes.
   --format         markdown, json, or markdown,json.
