@@ -1699,8 +1699,8 @@ function buildRecommendation(symbolSnapshot, scores, symbolRows, { sizes, holdin
   }
   const mantleRows = symbolRows.filter((row) => row.venue === 'Mantle xStocks' && row.status !== 'ok');
   if (missing.some((item) => item.includes('Mantle')) || mantleRows.length) {
-    const mantleReasons = [...new Set(mantleRows.map((row) => row.reason).filter(Boolean))];
-    const reasonText = mantleReasons.length ? ` 이번 실행의 Mantle quote 결과: ${mantleReasons.join(', ')}.` : '';
+    const mantleReasonSummary = summarizeMantleFailureReasons(mantleRows);
+    const reasonText = mantleReasonSummary ? ` 이번 실행의 Mantle quote 결과: ${mantleReasonSummary}.` : '';
     warnings.push(`Mantle은 "싸다/비싸다"보다 실행 가능한 RFQ, 풀 깊이, 브릿지/출금 비용을 확인해야 하는 유통 품질 문제로 봐야 합니다.${reasonText}`);
   }
   if (best?.productClass === 'tokenized_stock_alt' || best?.productClass === 'pre_market_stock_alt') {
@@ -1716,6 +1716,35 @@ function buildRecommendation(symbolSnapshot, scores, symbolRows, { sizes, holdin
     warnings,
     sizeSummary: Object.fromEntries(sizes.map((size) => [size, best ? bestCostFor(symbolRows, best, size, holdingDays) : null])),
   };
+}
+
+function summarizeMantleFailureReasons(rows) {
+  const bySource = new Map();
+  const other = new Set();
+  for (const row of rows || []) {
+    const reason = row.reason;
+    if (!reason) continue;
+    for (const part of String(reason).split(';')) {
+      const [rawSource, rawCodes] = part.split(':');
+      if (!rawCodes) {
+        other.add(part.trim());
+        continue;
+      }
+      const sourceName = rawSource.trim()
+        .replace('Fluxion Quote API', 'Fluxion')
+        .replace('Merchant Moe LBQuoter', 'Merchant Moe');
+      if (!sourceName) continue;
+      if (!bySource.has(sourceName)) bySource.set(sourceName, new Set());
+      for (const code of rawCodes.split(',')) {
+        const clean = code.trim();
+        if (clean) bySource.get(sourceName).add(clean);
+      }
+    }
+  }
+  const sourceText = [...bySource.entries()]
+    .map(([sourceName, codes]) => `${sourceName}: ${[...codes].join('/')}`);
+  const otherText = [...other];
+  return [...sourceText, ...otherText].join('; ');
 }
 
 function bestCostFor(symbolRows, best, size, holdingDays) {
