@@ -1,0 +1,4 @@
+interface:
+  display_name: "Onchain Equity Route Advisor"
+  short_description: "Compare tokenized stock routes with Mantle quote fallback"
+  default_prompt: "Use $onchain-equity-route-advisor to compare SPCXx holding routes for 1000, 5000, and 10000 USD, including Mantle LBQuoter route checks."

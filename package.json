@@ -1,0 +1,12 @@
+{
+  "name": "onchain-equity-route-advisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "advisor": "node scripts/run-route-advisor.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.54.2"
+  }
+}
