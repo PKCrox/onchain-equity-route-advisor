@@ -70,21 +70,21 @@ The run emits:
 
 ## Live Example: SPCXx
 
-Sample focused run: **2026-07-03 KST**. Re-run the command above to refresh the market data.
+Sample focused run: **2026-07-04 00:14 KST**. Re-run the command above to refresh the market data.
 
 Costs below are estimated round-trip costs in basis points for buying and later exiting the same notional size.
 
 | Route | 1k USD | 5k USD | 10k USD | What it means |
 |---|---:|---:|---:|---|
-| LBank spot | 26.0 bps | 30.9 bps | 35.6 bps | Lowest exact xStocks spot route at 5k in this run |
-| Bybit spot | 26.8 bps | 31.5 bps | 33.2 bps | Very close to LBank; lower at 10k |
-| Gate spot | 32.7 bps | 37.6 bps | 43.2 bps | Higher than Bybit/LBank across sizes |
-| Bitget Pre | 25.6 bps | 25.9 bps | 27.9 bps | Cheap-looking, but pre-market product, not exact xStocks spot |
-| Bitget RWA | 155.3 bps | 163.0 bps | 193.1 bps | Alternative RWA product, not treated as identical exposure |
-| MEXC ON | 173.6 bps | 532.0 bps | 1080.6 bps | Cost expands sharply with size |
-| Mantle SPCXx/USDT0 | 957.6 bps | no executable quote | no executable quote | 1k quote found via LBQuoter; larger public route depth not found |
-| Bybit Perp | 104.3 bps | 105.2 bps | 106.2 bps | Includes 30d funding; synthetic exposure |
-| Binance Perp | 126.6 bps | 127.1 bps | 127.5 bps | Includes 30d funding; synthetic exposure |
+| Bybit spot | 25.8 bps | 31.7 bps | 33.0 bps | Best exact xStocks spot route at 5k/10k in this run |
+| LBank spot | 25.9 bps | 32.3 bps | 40.0 bps | Very close at 1k; weaker at 10k |
+| Gate spot | 31.1 bps | 37.9 bps | 43.9 bps | Higher than Bybit/LBank across sizes |
+| Bitget Pre | 29.0 bps | 37.2 bps | 43.6 bps | Pre-market product, not exact xStocks spot |
+| Bitget RWA | 143.5 bps | 170.4 bps | 204.6 bps | Alternative RWA product, not treated as identical exposure |
+| MEXC ON | 187.6 bps | 510.1 bps | 1070.6 bps | Cost expands sharply with size |
+| Mantle SPCXx/USDT0 | 1924.4 bps | no executable quote | no executable quote | 1k quote found via LBQuoter; larger public route depth not found |
+| Bybit Perp | 104.3 bps | 105.3 bps | 106.4 bps | Includes 30d funding; synthetic exposure |
+| Binance Perp | 126.6 bps | 127.2 bps | 128.0 bps | Includes 30d funding; synthetic exposure |
 
 The point is not "pick the lowest number." The skill explains why each route belongs, or does not belong, in the same comparison set:
 
@@ -102,6 +102,7 @@ For SPCXx, the Mantle route check found:
 - Fluxion public quote returned `NO_LIQUIDITY_POOL` for 1k / 5k / 10k.
 - Merchant Moe LBQuoter direct Mantle RPC fallback found an executable **1k** `USDT0 -> SPCXx` quote.
 - 5k and 10k returned `NO_LB_ROUTE` in the public onchain path.
+- Merchant Moe pool proxy showed about **$3.25k liquidity**, **$708 24h volume**, and **11 24h transactions** at run time.
 - xChange/RFQ remained an authenticated layer requiring API-key access.
 
 So the result was not reduced to "Mantle works" or "Mantle fails." It was classified as:
