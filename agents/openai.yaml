@@ -1,4 +1,4 @@
 interface:
   display_name: "Onchain Equity Route Advisor"
   short_description: "Scan tokenized equity routes with Mantle quote fallback"
-  default_prompt: "Use $onchain-equity-route-advisor to scan discoverable tokenized-equity routes globally, then compare 1000, 5000, and 10000 USD execution costs for the strongest case studies, including Mantle LBQuoter route checks."
+  default_prompt: "Use $onchain-equity-route-advisor to scan discoverable tokenized-equity routes globally, then compare 1000, 5000, and 10000 USD execution costs for the strongest case studies, including Mantle LBQuoter route checks. Return an English reviewer-facing report unless I ask for Korean."

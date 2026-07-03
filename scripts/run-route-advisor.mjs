@@ -24,6 +24,7 @@ function parseArgs(argv) {
     fixture: null,
     maxSymbols: 12,
     intent: 'long-hold',
+    language: 'en',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -53,6 +54,9 @@ function parseArgs(argv) {
     } else if (token === '--intent') {
       args.intent = next || args.intent;
       index += 1;
+    } else if (token === '--language') {
+      args.language = String(next || '').toLowerCase();
+      index += 1;
     } else if (token === '--help' || token === '-h') {
       args.help = true;
     } else {
@@ -67,6 +71,7 @@ function parseArgs(argv) {
   const allowedFormats = new Set(['markdown', 'json']);
   const invalidFormats = args.format.filter((format) => !allowedFormats.has(format));
   if (invalidFormats.length) throw new Error(`--format only supports markdown,json. Invalid: ${invalidFormats.join(',')}`);
+  if (!['ko', 'en'].includes(args.language)) throw new Error('--language only supports ko or en');
   return args;
 }
 
@@ -78,6 +83,7 @@ function helpText() {
     --sizes 1000,5000,10000 \\
     --holding-days 7,14,30 \\
     --format markdown,json \\
+    --language en \\
     --output-dir artifacts/latest
 
 Options:
@@ -86,6 +92,7 @@ Options:
   --sizes          USD notional sizes to simulate.
   --holding-days   Funding/holding windows for perp routes.
   --format         markdown, json, or markdown,json.
+  --language       Report language: ko or en.
   --fixture        Read a saved raw snapshot JSON instead of live APIs.
   --output-dir     Write report.md, raw.json, and cost-table.csv.
   --intent         long-hold, short-trade, self-custody, or perp-hedge.
@@ -113,7 +120,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     holdingDays: args.holdingDays,
     intent: args.intent,
   });
-  const markdown = renderMarkdown(analysis);
+  const markdown = renderMarkdown(analysis, { language: args.language });
   const csv = costsToCsv(analysis.costRows);
 
   if (args.format.includes('markdown')) {
@@ -130,7 +137,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     await writeFile(path.join(args.outputDir, 'analysis.json'), `${JSON.stringify(analysis, null, 2)}\n`);
     await writeFile(path.join(args.outputDir, 'cost-table.csv'), `${csv}\n`);
     await writeFile(path.join(args.outputDir, 'sources.md'), `${renderSources(snapshot)}\n`);
-    await writeFile(path.join(args.outputDir, 'mantle-route-check.md'), `${renderRouteChecksMarkdown(analysis)}\n`);
+    await writeFile(path.join(args.outputDir, 'mantle-route-check.md'), `${renderRouteChecksMarkdown(analysis, { language: args.language })}\n`);
     await writeFile(path.join(args.outputDir, 'mantle-skill-chain.md'), `${renderMantleSkillChain(analysis)}\n`);
   }
 }

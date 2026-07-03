@@ -1,6 +1,6 @@
 ---
 name: onchain-equity-route-advisor
-description: Compare tokenized stock and onchain equity holding routes across CEX spot, perps, and onchain RWA venues. Use when a user asks where to buy or hold xStocks or tokenized equities, how much 1000/5000/10000 USD execution costs, whether Bybit/Mantle/perps are suitable for long-term holding, or how to produce a Mantle Research Challenge style route-quality report. Supports global discovery scans and focused case studies such as SPCXx.
+description: Compare tokenized stock and onchain equity holding routes across CEX spot, perps, and onchain RWA venues. Use when a user asks where to buy or hold xStocks or tokenized equities, how much 1000/5000/10000 USD execution costs, whether Bybit/Mantle/perps are suitable for long-term holding, or how to produce a Mantle Research Challenge style route-quality report. Defaults to global discovery scans; SPCXx is a focused Mantle case study, not the only supported asset.
 ---
 
 # Onchain Equity Route Advisor
@@ -29,10 +29,11 @@ npm run advisor -- \
   --sizes 1000,5000,10000 \
   --holding-days 7,14,30 \
   --format markdown,json \
+  --language en \
   --output-dir artifacts/latest-auto
 ```
 
-For a focused live SPCXx case study:
+For an optional focused live SPCXx case study:
 
 ```bash
 npm run advisor -- \
@@ -40,6 +41,7 @@ npm run advisor -- \
   --sizes 1000,5000,10000 \
   --holding-days 7,14,30 \
   --format markdown,json \
+  --language en \
   --output-dir artifacts/latest-spcxx
 ```
 
@@ -50,6 +52,8 @@ Key output files:
 - `analysis.json`: structured recommendation, confidence, and warning data.
 - `mantle-route-check.md`: Mantle-specific deployment, quote, LBQuoter, pool, and xChange evidence.
 - `mantle-skill-chain.md`: how the run used and extended Mantle Agent Skills.
+
+The CLI defaults to reviewer-facing English reports. Use `--language ko` when the final answer should be Korean.
 
 ## Default Workflow
 
@@ -67,12 +71,14 @@ Key output files:
      --sizes 1000,5000,10000 \
      --holding-days 7,14,30 \
      --format markdown,json \
+     --language en \
      --output-dir artifacts/latest
    ```
 
 3. Use the route layers in order.
    - Reference price: Backed/xStocks price data.
    - Venue discovery: xStocks deployments, Bybit/Gate/LBank/MEXC xStocks spot, MEXC/Bitget/Backpack alternatives, Bybit/Binance perps, Jupiter onchain route if available.
+   - Global-first behavior: if the user does not name a ticker, use `--symbols auto` and summarize the strongest discovered case studies before narrowing to SPCXx or any other asset.
    - Execution quality: order book or quote simulation at the requested USD sizes.
    - Holding cost: entry/exit execution plus fees; for perps include funding history over the requested windows.
    - Suitability: distinguish exact xStocks spot, alternative RWA stock tokens, pre-market alternatives, perp exposure, leveraged ETF, and unavailable/unverified routes.
@@ -83,6 +89,7 @@ Key output files:
 
 4. Write the final answer in a compact form.
    - Start with the best route for the user intent.
+   - If the run used global discovery, say that explicitly and avoid framing SPCXx as the only asset.
    - Include a small 1000/5000/10000 USD cost table.
    - Explain why perps are not long-hold substitutes unless the user asked for leveraged/hedged exposure.
    - Explain Mantle objectively: separate Fluxion executable quote results, Merchant Moe LBQuoter direct quotes, pool telemetry, and authenticated xChange/RFQ requirements.
@@ -90,7 +97,7 @@ Key output files:
 
 ## Output Contract
 
-Use this shape unless the user asks otherwise:
+For Korean output, use this shape unless the user asks otherwise:
 
 ```markdown
 **결론**
@@ -104,6 +111,27 @@ Use this shape unless the user asks otherwise:
 ...
 
 **주의할 점**
+...
+```
+
+For English reviewer-facing output, use this shape:
+
+```markdown
+**Conclusion**
+...
+
+**Execution Readiness Summary**
+| Item | Result | Interpretation |
+...
+
+**Cost Comparison**
+| Symbol | Recommended route | 1k | 5k | 10k | Confidence | Why |
+...
+
+**Mantle Route Check**
+...
+
+**Caveats**
 ...
 ```
 

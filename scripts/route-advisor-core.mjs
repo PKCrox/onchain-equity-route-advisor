@@ -2,6 +2,7 @@ import { createPublicClient, formatUnits, http } from 'viem';
 
 export const DEFAULT_SIZES = [1000, 5000, 10000];
 export const DEFAULT_HOLDING_DAYS = [7, 14, 30];
+export const DEFAULT_DISCOVERY_SYMBOLS = ['NVDAx', 'COINx', 'AAPLx', 'TSLAx', 'SPCXx'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BACKED_ASSETS_URL = 'https://api.backed.fi/api/v2/public/assets';
@@ -241,7 +242,7 @@ async function collectMarketCatalogs(sourceLog) {
 }
 
 export async function collectLiveSnapshot({
-  symbols = ['SPCXx'],
+  symbols = ['auto'],
   maxSymbols = 12,
   sizes = DEFAULT_SIZES,
   holdingDays = DEFAULT_HOLDING_DAYS,
@@ -260,9 +261,9 @@ export async function collectLiveSnapshot({
     .filter(Boolean);
 
   const selectedSymbols = symbols.includes('auto')
-    ? bybitXStockSymbols.slice(0, maxSymbols)
+    ? discoverGlobalSymbols({ backedAssets, bybitXStockSymbols, maxSymbols })
     : symbols.map(normalizeXStockSymbol);
-  const fallbackSymbols = selectedSymbols.length ? selectedSymbols : ['SPCXx'];
+  const fallbackSymbols = selectedSymbols.length ? selectedSymbols : DEFAULT_DISCOVERY_SYMBOLS.slice(0, maxSymbols);
   const spotInstrumentBySymbol = indexBy(catalogs.bybitSpotInstruments, (instrument) => xStockFromBybitBase(instrument.baseCoin));
 
   const symbolSnapshots = [];
@@ -323,6 +324,27 @@ export function buildSnapshotFromFixture(fixture) {
     sources: fixture.sources || [],
     symbols: fixture.symbols || [],
   };
+}
+
+function discoverGlobalSymbols({ backedAssets, bybitXStockSymbols, maxSymbols }) {
+  const symbols = [];
+  const seen = new Set();
+  const add = (symbol) => {
+    const normalized = normalizeXStockSymbol(symbol);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    symbols.push(normalized);
+  };
+
+  for (const symbol of bybitXStockSymbols) add(symbol);
+  for (const asset of backedAssets || []) {
+    const hasMantle = (asset.deployments || []).some((deployment) => String(deployment.network || '').toLowerCase() === 'mantle');
+    if (hasMantle) add(asset.symbol);
+  }
+  for (const asset of backedAssets || []) add(asset.symbol);
+  for (const symbol of DEFAULT_DISCOVERY_SYMBOLS) add(symbol);
+
+  return symbols.slice(0, maxSymbols);
 }
 
 function summarizeAsset(asset) {
@@ -1817,7 +1839,8 @@ function csvValue(value) {
   return /[",\n]/u.test(stringValue) ? `"${stringValue.replaceAll('"', '""')}"` : stringValue;
 }
 
-export function renderMarkdown(analysis) {
+export function renderMarkdown(analysis, { language = 'ko' } = {}) {
+  if (language === 'en') return renderMarkdownEn(analysis);
   const lines = [];
   lines.push('**결론**');
   lines.push(renderConclusion(analysis));
@@ -1873,6 +1896,62 @@ export function renderMarkdown(analysis) {
   return lines.join('\n');
 }
 
+function renderMarkdownEn(analysis) {
+  const lines = [];
+  const displaySizes = (analysis.sizes?.length ? analysis.sizes : DEFAULT_SIZES);
+  lines.push('**Conclusion**');
+  lines.push(renderConclusionEn(analysis));
+  lines.push('');
+  lines.push(`Generated at: ${analysis.generatedAt}`);
+  if (analysis.coverage) {
+    const executableVenues = analysis.coverage.venues.length ? analysis.coverage.venues.join(', ') : 'none';
+    const manualVenues = analysis.coverage.manualVenues?.length ? ` / manual or unavailable: ${analysis.coverage.manualVenues.join(', ')}` : '';
+    lines.push(`Coverage: ${executableVenues}${manualVenues} (${analysis.coverage.symbols} symbols, ${analysis.coverage.executableRows} executable rows, ${analysis.coverage.manualRows || 0} manual/unavailable rows)`);
+  }
+  const readiness = renderReadinessSummaryEn(analysis.readiness);
+  if (readiness) {
+    lines.push('');
+    lines.push(readiness);
+  }
+  lines.push('');
+  lines.push('**Cost Comparison**');
+  lines.push(`| Symbol | Recommended route | ${displaySizes.map(formatSizeHeader).join(' | ')} | Confidence | Why |`);
+  lines.push(`|---|---:|${displaySizes.map(() => '---:').join('|')}|---:|---|`);
+  for (const recommendation of analysis.recommendations) {
+    const bestRoute = recommendation.best ? `${recommendation.best.venue} / ${productLabelEn(recommendation.best.productClass)}` : 'n/a';
+    const cells = displaySizes.map((size) => formatCostCell(recommendation.sizeSummary?.[size]));
+    const confidence = recommendation.best ? `${Math.round(recommendation.best.dataConfidence ?? 0)}/100 ${dataQualityLabelEn(recommendation.best.dataQuality)}` : 'n/a';
+    const why = recommendation.best
+      ? `${recommendation.best.representativeSizeUsd} USD reference size, ${formatBps(recommendation.best.representativeCostBps)}, product fit ${Math.round(recommendation.best.productFit)}/100`
+      : 'No executable public route found';
+    lines.push(`| ${recommendation.symbol} | ${bestRoute} | ${cells.join(' | ')} | ${confidence} | ${why} |`);
+  }
+  const routeCheckMarkdown = renderRouteChecksSectionEn(analysis.routeChecks || []);
+  if (routeCheckMarkdown) {
+    lines.push('');
+    lines.push(routeCheckMarkdown);
+  }
+  lines.push('');
+  lines.push('**Caveats**');
+  const caveats = englishCaveats(analysis);
+  if (caveats.length) {
+    for (const caveat of caveats) lines.push(`- ${caveat}`);
+  } else {
+    lines.push('- No major caveat surfaced. Account-level fees, withdrawal paths, bridge costs, and redemption terms still need venue-specific review.');
+  }
+  const missing = analysis.recommendations.flatMap((recommendation) => recommendation.missing.map((item) => `${recommendation.symbol} ${item}`));
+  if (missing.length) {
+    lines.push('- Manual checks: ' + missing.slice(0, 8).map(englishizeMissing).join('; ') + (missing.length > 8 ? '; ...' : ''));
+  }
+  const failedSources = (analysis.sources || []).filter((item) => item.ok === false);
+  if (failedSources.length) {
+    lines.push('- Source failures: ' + failedSources.slice(0, 4).map((item) => item.label).join(', ') + (failedSources.length > 4 ? ', ...' : ''));
+  }
+  lines.push('');
+  lines.push('Execution and holding-cost analysis only. Not investment advice.');
+  return lines.join('\n');
+}
+
 function renderConclusion(analysis) {
   const recommendations = analysis.recommendations || [];
   if (recommendations.length > 3) {
@@ -1883,6 +1962,20 @@ function renderConclusion(analysis) {
   const topSummaries = recommendations.map((recommendation) => {
     if (!recommendation.best) return `${recommendation.symbol}: 실행 가능한 공개 quote가 부족합니다.`;
     return `${recommendation.symbol}: ${recommendation.best.venue} (${recommendation.best.marketSymbol})가 현재 ${intentLabel(analysis.intent)} 기준 1순위입니다.`;
+  });
+  return topSummaries.join(' ');
+}
+
+function renderConclusionEn(analysis) {
+  const recommendations = analysis.recommendations || [];
+  if (recommendations.length > 3) {
+    const topRoutes = (analysis.readiness?.topRoutes || []).slice(0, 5);
+    const topText = topRoutes.length ? ` Top routes: ${topRoutes.join('; ')}.` : '';
+    return `Scanned ${recommendations.length} tokenized-equity candidates for ${intentLabelEn(analysis.intent)}.${topText}`;
+  }
+  const topSummaries = recommendations.map((recommendation) => {
+    if (!recommendation.best) return `${recommendation.symbol}: no executable public quote found.`;
+    return `${recommendation.symbol}: ${recommendation.best.venue} (${recommendation.best.marketSymbol}) is currently the top ${intentLabelEn(analysis.intent)} route.`;
   });
   return topSummaries.join(' ');
 }
@@ -1906,13 +1999,42 @@ function renderReadinessSummary(readiness) {
   ].join('\n');
 }
 
+function renderReadinessSummaryEn(readiness) {
+  if (!readiness || readiness.symbols <= 1) return '';
+  const rows = [
+    ['Scanned symbols', `${readiness.symbols}`, 'global discovery scope'],
+    ['Exact xStocks spot executable', `${readiness.exactSpotSymbols.length}`, summarizeSymbolListEn(readiness.exactSpotSymbols)],
+    ['Alternative RWA/pre-market executable', `${readiness.alternativeSymbols.length}`, summarizeSymbolListEn(readiness.alternativeSymbols)],
+    ['Perp exposure exists', `${readiness.perpSymbols.length}`, 'separated from long-hold spot recommendations'],
+    ['Mantle deployment confirmed', `${readiness.mantleDeployedSymbols.length}`, summarizeSymbolListEn(readiness.mantleDeployedSymbols)],
+    ['Mantle public quote executable', `${readiness.mantleExecutableSymbols.length}`, summarizeSymbolListEn(readiness.mantleExecutableSymbols)],
+    ['RFQ/API-key layer required', `${readiness.mantleRfqRequiredSymbols.length}`, summarizeSymbolListEn(readiness.mantleRfqRequiredSymbols)],
+  ];
+  return [
+    '**Execution Readiness Summary**',
+    '| Item | Result | Interpretation |',
+    '|---|---:|---|',
+    ...rows.map(([label, value, note]) => `| ${label} | ${value} | ${note} |`),
+  ].join('\n');
+}
+
 function summarizeSymbolList(symbols, max = 5) {
   if (!symbols?.length) return '없음';
   const shown = symbols.slice(0, max).join(', ');
   return symbols.length > max ? `${shown} 외 ${symbols.length - max}개` : shown;
 }
 
-export function renderRouteChecksMarkdown(analysis) {
+function summarizeSymbolListEn(symbols, max = 5) {
+  if (!symbols?.length) return 'none';
+  const shown = symbols.slice(0, max).join(', ');
+  return symbols.length > max ? `${shown} plus ${symbols.length - max} more` : shown;
+}
+
+export function renderRouteChecksMarkdown(analysis, { language = 'ko' } = {}) {
+  if (language === 'en') {
+    return renderRouteChecksSectionEn(analysis.routeChecks || [], { title: '# Mantle Route Check' })
+      || '# Mantle Route Check\n\nNo Mantle or onchain manual-check route was found in this run.';
+  }
   return renderRouteChecksSection(analysis.routeChecks || [], { title: '# Mantle Route Check' })
     || '# Mantle Route Check\n\nNo Mantle or onchain manual-check route was found in this run.';
 }
@@ -1939,6 +2061,28 @@ function renderRouteChecksSection(routeChecks, { title = '**Mantle route check**
   return lines.join('\n');
 }
 
+function renderRouteChecksSectionEn(routeChecks, { title = '**Mantle Route Check**' } = {}) {
+  const checks = routeChecks.filter((check) => check.venue === 'Mantle xStocks');
+  if (!checks.length) return '';
+  const lines = [title];
+  lines.push('| Symbol | Route | Status | Confirmed | Quote/depth result | Remaining caveats |');
+  lines.push('|---|---|---|---|---|---|');
+  for (const check of checks) {
+    const cells = [
+      check.symbol,
+      `${check.venue}<br>${check.marketSymbol || ''}`,
+      routeStatusLabelEn(check.status),
+      tableList((check.confirmed || []).map(englishizeRouteText)),
+      tableList((check.execution || []).map(englishizeRouteText)),
+      tableList((check.missing || []).map(englishizeRouteText)),
+    ].map(escapeTableCell);
+    lines.push(`| ${cells.join(' | ')} |`);
+  }
+  lines.push('');
+  lines.push('Interpretation: Mantle rows are not ranked from deployment alone. The tool separates Fluxion quotes, Merchant Moe LBQuoter reads, pool telemetry, and xChange/RFQ authentication state before assigning route readiness.');
+  return lines.join('\n');
+}
+
 function routeStatusLabel(status) {
   return {
     ok: '실행 가능',
@@ -1947,6 +2091,16 @@ function routeStatusLabel(status) {
     unavailable: '미지원/미확인',
     partial: '부분 체결',
   }[status] || status || '미확인';
+}
+
+function routeStatusLabelEn(status) {
+  return {
+    ok: 'executable',
+    manual_check: 'manual check',
+    quote_failed: 'quote failed',
+    unavailable: 'unsupported/unavailable',
+    partial: 'partial fill',
+  }[status] || status || 'unknown';
 }
 
 function tableList(items) {
@@ -1966,6 +2120,15 @@ function intentLabel(intent) {
   }[intent] || intent;
 }
 
+function intentLabelEn(intent) {
+  return {
+    'long-hold': 'long-hold',
+    'short-trade': 'short-trade',
+    'self-custody': 'self-custody',
+    'perp-hedge': 'perp/hedge',
+  }[intent] || intent;
+}
+
 function productLabel(productClass) {
   return {
     spot_tokenized_stock: '토큰화 주식 현물',
@@ -1974,6 +2137,25 @@ function productLabel(productClass) {
     pre_market_stock_alt: '프리마켓 대체 토큰',
     perpetual_future: '무기한 선물',
   }[productClass] || productClass;
+}
+
+function productLabelEn(productClass) {
+  return {
+    spot_tokenized_stock: 'tokenized-stock spot',
+    onchain_tokenized_stock: 'onchain tokenized stock',
+    tokenized_stock_alt: 'alternative RWA stock token',
+    pre_market_stock_alt: 'pre-market alternative token',
+    perpetual_future: 'perpetual future',
+  }[productClass] || productClass;
+}
+
+function dataQualityLabelEn(label) {
+  return {
+    '높음': 'high',
+    '보통': 'medium',
+    '수동확인': 'manual-check',
+    '낮음': 'low',
+  }[label] || label || '';
 }
 
 function formatSizeHeader(sizeUsd) {
@@ -1989,6 +2171,57 @@ function koreanizeMissing(text) {
     .replace('No Solana deployment in xStocks public asset list', 'xStocks 공개 자산 목록에서 Solana 배포 확인 안 됨')
     .replace('No public orderbook', '공개 오더북 없음')
     .replace('No executable quote', '실행 가능한 quote 없음');
+}
+
+function englishCaveats(analysis) {
+  const caveats = [];
+  const scores = analysis.venueScores || [];
+  if (scores.some((score) => score.routeType === 'perp') && analysis.intent !== 'perp-hedge') {
+    caveats.push('Perps are synthetic exposure, not token/share ownership. For long-hold use, funding and liquidation risk must be separated from spot routes.');
+  }
+  const mantleRows = (analysis.costRows || []).filter((row) => row.venue === 'Mantle xStocks' && row.status !== 'ok');
+  if (mantleRows.length) {
+    const reason = summarizeMantleFailureReasons(mantleRows);
+    caveats.push(`Mantle should be evaluated as a distribution-readiness layer, not simply cheap/expensive. ${reason ? `Observed public-route result: ${reason}.` : 'Executable RFQ, pool depth, bridge, withdrawal, and settlement costs still need verification.'}`);
+  }
+  const altBest = (analysis.recommendations || []).filter((recommendation) =>
+    recommendation.best?.productClass === 'tokenized_stock_alt' ||
+    recommendation.best?.productClass === 'pre_market_stock_alt');
+  for (const recommendation of altBest) {
+    caveats.push(`${recommendation.symbol}'s top route is an alternative RWA/pre-market product, not exact xStocks spot. Issuer, redemption, and rights structure require separate review.`);
+  }
+  return [...new Set(caveats)];
+}
+
+function englishizeMissing(text) {
+  return englishizeRouteText(text)
+    .replace('Set ENABLE_JUPITER=1 to fetch live Solana route quotes.', 'set ENABLE_JUPITER=1 to fetch live Solana/Jupiter quotes')
+    .replace('No Mantle deployment in xStocks public asset list', 'no Mantle deployment in xStocks public asset list')
+    .replace('No Solana deployment in xStocks public asset list', 'no Solana deployment in xStocks public asset list')
+    .replace('No public orderbook', 'no public order book')
+    .replace('No executable quote', 'no executable quote');
+}
+
+function englishizeRouteText(text) {
+  return String(text || '')
+    .replace(/^([0-9a-zA-Zx]+: )?(.+?) 배포 확인$/u, (_, prefix = '', address) => `${prefix}${address} deployment confirmed`)
+    .replace('xStocks 메타데이터상 atomic swap 지원', 'atomic-swap support in xStocks metadata')
+    .replace(/(.+) route 메타데이터/u, '$1 route metadata')
+    .replace('Fluxion quote 실패', 'Fluxion quote failed')
+    .replace('Merchant Moe LBQuoter 미체결', 'Merchant Moe LBQuoter no executable route')
+    .replace('공개 indexer에서 pool 미검출', 'pool not found in public indexer')
+    .replace('xStocks xChange soft quote: API key 필요', 'xStocks xChange soft quote requires API key')
+    .replace('Fluxion/Merchant Moe executable quote 부족으로 비용 랭킹 제외', 'excluded from cost ranking because Fluxion/Merchant Moe did not return executable quote')
+    .replace('Merchant Moe pool telemetry는 depth proxy이며 executable slippage가 아님', 'Merchant Moe pool telemetry is only a depth proxy, not executable slippage')
+    .replace('브릿지/출금/settlement 비용 미포함', 'bridge/withdrawal/settlement costs not included')
+    .replace('xStocks xChange soft quote는 API key 필요', 'xStocks xChange soft quote requires API key')
+    .replace('pool telemetry는 참고값이며 최종 체결 전 quote 재확인 필요', 'pool telemetry is contextual only; final quote must be rechecked before execution')
+    .replace(/일부 size\((.+?)\)는 executable quote 미확인/u, 'some sizes ($1) do not have executable quote evidence')
+    .replace('실행 가능한 RFQ/AMM quote 미호출', 'executable RFQ/AMM quote not called')
+    .replace('1k/5k/10k pool depth와 slippage 미측정', '1k/5k/10k pool depth and slippage not measured')
+    .replace('브릿지/출금/settlement 비용 미측정', 'bridge/withdrawal/settlement costs not measured')
+    .replace('공개 route 확인 필요', 'public route requires verification')
+    .replace('공개 실행 데이터 없음', 'no public execution data');
 }
 
 function formatCostCell(cost) {
