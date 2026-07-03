@@ -1,6 +1,6 @@
 ---
 name: onchain-equity-route-advisor
-description: Compare tokenized stock and onchain equity holding routes across CEX spot, perps, and onchain RWA venues. Use when a user asks where to buy or hold xStocks such as SPCXx, how much 1000/5000/10000 USD execution costs, whether Bybit/Mantle/perps are suitable for long-term holding, or how to produce a Mantle Research Challenge style route-quality report.
+description: Compare tokenized stock and onchain equity holding routes across CEX spot, perps, and onchain RWA venues. Use when a user asks where to buy or hold xStocks or tokenized equities, how much 1000/5000/10000 USD execution costs, whether Bybit/Mantle/perps are suitable for long-term holding, or how to produce a Mantle Research Challenge style route-quality report. Supports global discovery scans and focused case studies such as SPCXx.
 ---
 
 # Onchain Equity Route Advisor
@@ -14,26 +14,15 @@ Use this skill to answer tokenized-equity route questions with a deterministic m
 When this skill is installed in Claude Code, Codex, or another Agent Skills-compatible runtime, ask naturally:
 
 ```text
-Compare SPCXx routes for 1000, 5000, and 10000 USD. Include CEX spot, perps with 7/14/30 day funding, Mantle deployment checks, Fluxion quotes, Merchant Moe LBQuoter fallback, xChange auth status, and a concise long-hold verdict.
+Scan discoverable tokenized-equity routes globally, then compare 1000, 5000, and 10000 USD execution cost for the strongest case studies. Include CEX spot, perps with 7/14/30 day funding, Mantle deployment checks, Fluxion quotes, Merchant Moe LBQuoter fallback, xChange auth status, and concise long-hold verdicts.
 ```
 
 The agent should load this skill, run the bundled route-advisor script from this skill folder, and return the generated verdict.
 
-For a direct live SPCXx check from the skill folder:
+For a global discovery scan from the skill folder:
 
 ```bash
 npm install
-npm run advisor -- \
-  --symbols SPCXx \
-  --sizes 1000,5000,10000 \
-  --holding-days 7,14,30 \
-  --format markdown,json \
-  --output-dir artifacts/latest-spcxx
-```
-
-For a broader scan over currently discoverable Bybit xStocks:
-
-```bash
 npm run advisor -- \
   --symbols auto \
   --max-symbols 12 \
@@ -41,6 +30,17 @@ npm run advisor -- \
   --holding-days 7,14,30 \
   --format markdown,json \
   --output-dir artifacts/latest-auto
+```
+
+For a focused live SPCXx case study:
+
+```bash
+npm run advisor -- \
+  --symbols SPCXx \
+  --sizes 1000,5000,10000 \
+  --holding-days 7,14,30 \
+  --format markdown,json \
+  --output-dir artifacts/latest-spcxx
 ```
 
 Key output files:

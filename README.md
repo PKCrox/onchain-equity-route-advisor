@@ -7,13 +7,14 @@
 <p align="center">
   <a href="https://github.com/PKCrox/onchain-equity-route-advisor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/PKCrox/onchain-equity-route-advisor?label=skill%20zip"></a>
   <a href="https://github.com/PKCrox/onchain-equity-route-advisor"><img alt="Agent Skill" src="https://img.shields.io/badge/Agent%20Skill-Claude%20%2F%20Codex-111827"></a>
+  <a href="#global-mode"><img alt="Global mode" src="https://img.shields.io/badge/mode-global%20route%20scan-7c3aed"></a>
   <a href="#mantle-route-readiness"><img alt="Mantle route readiness" src="https://img.shields.io/badge/Mantle-route%20readiness-00b894"></a>
-  <a href="#working-example-spcxx"><img alt="SPCXx example" src="https://img.shields.io/badge/SPCXx-live%20example-2563eb"></a>
+  <a href="#case-study-spcxx"><img alt="SPCXx case study" src="https://img.shields.io/badge/SPCXx-case%20study-2563eb"></a>
 </p>
 
 Built for **Mantle Research Challenge Track 2**, this repository packages an Agent Skill and deterministic CLI that answer a simple question users actually care about:
 
-> If I want exposure to a tokenized stock such as SPCXx, where can I buy it, how much will it cost at 1k / 5k / 10k size, and what am I really holding?
+> If I want tokenized equity exposure, where can I buy it, how much will it cost at 1k / 5k / 10k size, and what am I really holding?
 
 The answer is not just a price quote. It requires order-book depth, spread, fees, funding history, product classification, onchain route availability, RFQ status, and a clear distinction between "deployed" and "execution-ready."
 
@@ -26,7 +27,8 @@ This project turns that into a repeatable research workflow for Claude, Codex, a
 | X submission post | https://x.com/chanthebob/status/2073061744851976395 |
 | GitHub repository | https://github.com/PKCrox/onchain-equity-route-advisor |
 | Latest skill ZIP | https://github.com/PKCrox/onchain-equity-route-advisor/releases/latest |
-| Primary demo asset | SPCXx route comparison across CEX spot, perps, and Mantle onchain routes |
+| Primary demo mode | Global route scan across discoverable tokenized equities |
+| Worked case study | SPCXx route comparison across CEX spot, perps, and Mantle onchain routes |
 
 ## At A Glance
 
@@ -35,7 +37,7 @@ This project turns that into a repeatable research workflow for Claude, Codex, a
 | What does it do? | Compares tokenized-stock holding routes by execution cost, product type, funding, liquidity, and Mantle route readiness. |
 | Why is it useful? | It separates "asset issued" from "route can actually execute at my size." |
 | How was it built? | Agent Skill instructions plus deterministic Node adapters for CEX order books, perp funding, Mantle metadata, Fluxion quotes, Merchant Moe LBQuoter, and pool telemetry. |
-| What is the working case? | SPCXx at 1k / 5k / 10k USD across Bybit, LBank, Gate, Bitget, MEXC, Binance/Bybit perps, and Mantle SPCXx/USDT0. |
+| What is the working case? | The skill supports global scans; SPCXx is the fully documented case because it touches CEX spot, perps, Mantle deployment, Fluxion, Merchant Moe, and RFQ status. |
 | What is the Mantle-specific contribution? | A fallback chain that does not stop at public quote failure: deployment metadata -> Fluxion preflight -> direct LBQuoter RPC -> telemetry/RFQ status -> size-specific verdict. |
 
 ## Why This Exists
@@ -54,6 +56,41 @@ A real user asks:
 > Can I buy 1,000, 5,000, or 10,000 USD of this tokenized equity right now, through which route, at what total cost, and with what trade-offs?
 
 `onchain-equity-route-advisor` was built for that layer. It compares CEX spot, perps, alternative RWA tokens, pre-market products, and Mantle onchain routes under the same execution-quality framework.
+
+## Global Mode
+
+This is not an SPCXx-only tool.
+
+SPCXx is the worked case study because it is a high-signal example for the Mantle challenge: it has xStocks metadata, CEX markets, perp markets, a Mantle deployment, public quote behavior, Merchant Moe pool telemetry, and an authenticated RFQ layer.
+
+The actual skill is asset-agnostic. It can run in two modes:
+
+| Mode | Command pattern | Use case |
+|---|---|---|
+| Global discovery | `--symbols auto --max-symbols 12` | Scan currently discoverable tokenized-equity routes and surface candidates worth deeper research. |
+| Focused investigation | `--symbols SPCXx` or comma-separated symbols | Produce a full route-quality report for a specific ticker or shortlist. |
+
+The intended workflow is:
+
+```text
+Run global discovery
+  -> find assets with active route evidence
+  -> run focused checks on the interesting names
+  -> compare CEX spot, perps, onchain routes, and RFQ gaps
+  -> write a route-quality verdict with confidence and caveats
+```
+
+Example global smoke run:
+
+Sample command: `--symbols auto --max-symbols 3 --sizes 1000`
+
+| Asset | Best 1k route in smoke run | 1k round-trip cost | Mantle readiness signal |
+|---|---|---:|---|
+| NVDAx | Bybit spot | 27.1 bps | Mantle deployment confirmed; Fluxion `NO_LIQUIDITY_POOL`; LBQuoter `NO_LB_ROUTE`; RFQ key required |
+| COINx | Gate spot | 33.1 bps | Mantle deployment confirmed; Fluxion `NO_LIQUIDITY_POOL`; LBQuoter `NO_LB_ROUTE`; RFQ key required |
+| AAPLx | Bybit spot | 33.0 bps | Mantle deployment confirmed; Fluxion `NO_LIQUIDITY_POOL`; LBQuoter `NO_LB_ROUTE`; RFQ key required |
+
+This is the broader point: the skill does not only ask whether a tokenized equity exists. It asks which assets have usable distribution routes, which venues are currently executable, and where Mantle routing needs RFQ or deeper liquidity before larger-size execution can be recommended.
 
 ## What It Does
 
@@ -96,13 +133,25 @@ Classify the product
 
 ## Quick Start For Reviewers
 
-Clone the repository and run the live SPCXx comparison:
+Clone the repository and run a global scan:
 
 ```bash
 git clone https://github.com/PKCrox/onchain-equity-route-advisor
 cd onchain-equity-route-advisor
 npm install
 
+npm run advisor -- \
+  --symbols auto \
+  --max-symbols 12 \
+  --sizes 1000,5000,10000 \
+  --holding-days 7,14,30 \
+  --format markdown,json \
+  --output-dir artifacts/latest-auto
+```
+
+Then run the focused SPCXx case study:
+
+```bash
 npm run advisor -- \
   --symbols SPCXx \
   --sizes 1000,5000,10000 \
@@ -114,10 +163,10 @@ npm run advisor -- \
 Or install it as an Agent Skill and ask:
 
 ```text
-Compare SPCXx routes for 1000, 5000, and 10000 USD.
-Include CEX spot, perps with 7/14/30 day funding, Mantle deployment checks,
-Fluxion quotes, Merchant Moe LBQuoter fallback, xChange auth status,
-and a concise long-hold verdict.
+Scan discoverable tokenized-equity routes globally, then pick the strongest
+case studies and compare 1000, 5000, and 10000 USD execution cost.
+For Mantle routes, include deployment checks, Fluxion quotes,
+Merchant Moe LBQuoter fallback, xChange/RFQ status, and route caveats.
 ```
 
 The output is designed for human review, not just machine parsing:
@@ -128,7 +177,7 @@ The output is designed for human review, not just machine parsing:
 - `mantle-route-check.md` - Mantle deployment, quote, LBQuoter, pool, and xChange evidence
 - `mantle-skill-chain.md` - how the workflow maps onto Mantle Agent Skills
 
-## Working Example: SPCXx
+## Case Study: SPCXx
 
 Sample focused run: **2026-07-04 00:14 KST**. Market data moves, so the command above should be treated as the source of truth for a fresh run.
 
@@ -249,7 +298,7 @@ Then upload it in:
 Customize -> Skills -> Create skill -> Upload skill
 ```
 
-Enable the skill and ask the SPCXx comparison prompt above.
+Enable the skill and ask the global scan or focused comparison prompt above.
 
 ## Run A Broader Scan
 
@@ -343,12 +392,12 @@ npm run validate-skill
 
 Mantle Research Challenge Track 2 asks for a research agent, workflow, script, dashboard, or guide that helps people conduct onchain finance research.
 
-This submission contributes a working Agent Skill that makes tokenized-equity distribution measurable:
+This submission contributes a working Agent Skill that makes tokenized-equity distribution measurable across venues and assets:
 
 - what the tool does: route-quality analysis for tokenized stocks,
 - why it is useful: it separates issuance from execution readiness,
 - how it is built: deterministic adapters plus Mantle Agent Skill-style reasoning layers,
-- working case: SPCXx across CEX spot, perps, and Mantle onchain routes.
+- working case: global discovery mode, with SPCXx documented as the full Mantle route-readiness case study.
 
 ## License
 
