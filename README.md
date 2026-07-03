@@ -1,6 +1,15 @@
 # Onchain Equity Route Advisor
 
-**Execution-readiness intelligence for tokenized equities.**
+<p align="center">
+  <strong>Execution-readiness intelligence for tokenized equities.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/PKCrox/onchain-equity-route-advisor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/PKCrox/onchain-equity-route-advisor?label=skill%20zip"></a>
+  <a href="https://github.com/PKCrox/onchain-equity-route-advisor"><img alt="Agent Skill" src="https://img.shields.io/badge/Agent%20Skill-Claude%20%2F%20Codex-111827"></a>
+  <a href="#mantle-route-readiness"><img alt="Mantle route readiness" src="https://img.shields.io/badge/Mantle-route%20readiness-00b894"></a>
+  <a href="#working-example-spcxx"><img alt="SPCXx example" src="https://img.shields.io/badge/SPCXx-live%20example-2563eb"></a>
+</p>
 
 Built for **Mantle Research Challenge Track 2**, this repository packages an Agent Skill and deterministic CLI that answer a simple question users actually care about:
 
@@ -9,6 +18,25 @@ Built for **Mantle Research Challenge Track 2**, this repository packages an Age
 The answer is not just a price quote. It requires order-book depth, spread, fees, funding history, product classification, onchain route availability, RFQ status, and a clear distinction between "deployed" and "execution-ready."
 
 This project turns that into a repeatable research workflow for Claude, Codex, and other Agent Skills-compatible runtimes.
+
+## Submission Links
+
+| Artifact | Link |
+|---|---|
+| X submission post | https://x.com/chanthebob/status/2073061744851976395 |
+| GitHub repository | https://github.com/PKCrox/onchain-equity-route-advisor |
+| Latest skill ZIP | https://github.com/PKCrox/onchain-equity-route-advisor/releases/latest |
+| Primary demo asset | SPCXx route comparison across CEX spot, perps, and Mantle onchain routes |
+
+## At A Glance
+
+| Reviewer question | What this project gives you |
+|---|---|
+| What does it do? | Compares tokenized-stock holding routes by execution cost, product type, funding, liquidity, and Mantle route readiness. |
+| Why is it useful? | It separates "asset issued" from "route can actually execute at my size." |
+| How was it built? | Agent Skill instructions plus deterministic Node adapters for CEX order books, perp funding, Mantle metadata, Fluxion quotes, Merchant Moe LBQuoter, and pool telemetry. |
+| What is the working case? | SPCXx at 1k / 5k / 10k USD across Bybit, LBank, Gate, Bitget, MEXC, Binance/Bybit perps, and Mantle SPCXx/USDT0. |
+| What is the Mantle-specific contribution? | A fallback chain that does not stop at public quote failure: deployment metadata -> Fluxion preflight -> direct LBQuoter RPC -> telemetry/RFQ status -> size-specific verdict. |
 
 ## Why This Exists
 
@@ -53,6 +81,18 @@ Classify the product
   -> separate executable quotes from pool telemetry
   -> rank only comparable, executable routes
 ```
+
+## Execution Stack
+
+| Layer | Checked evidence | Output |
+|---|---|---|
+| Product classification | xStocks metadata, venue symbol conventions, route labels | Exact xStocks, alternative RWA, pre-market, perp, or unavailable route |
+| CEX spot execution | Public order books and default fee assumptions | 1k / 5k / 10k round-trip cost in bps |
+| Perp holding cost | Funding history over 7 / 14 / 30 day windows | Synthetic exposure cost separated from spot ownership |
+| Mantle deployment | xStocks deployment metadata and token address | Whether the asset is actually deployed on Mantle |
+| Mantle quote preflight | Fluxion public quote response | Public quote availability or specific failure reason |
+| Mantle fallback | Merchant Moe LBQuoter read via Mantle RPC | Executable onchain quote by size when available |
+| Route caveats | Pool telemetry, RFQ auth status, missing data | Pass / watch / unavailable style route-quality explanation |
 
 ## Quick Start For Reviewers
 
@@ -141,6 +181,16 @@ The next layer is RFQ, liquidity depth, and distribution-quality monitoring.
 ```
 
 That is the exact gap this skill is meant to expose and improve.
+
+| Mantle evidence layer | SPCXx result from sample run | Why it matters |
+|---|---|---|
+| Deployment | Confirmed on Mantle | Issuance exists, so the route is worth checking. |
+| Atomic-swap metadata | Supported in xStocks metadata | There is a designed path beyond a passive token listing. |
+| Fluxion public quote | `NO_LIQUIDITY_POOL` at 1k / 5k / 10k | Public quote availability is not enough yet. |
+| Merchant Moe LBQuoter | 1k executable quote found | Direct onchain reads can recover evidence that a public API did not return. |
+| Larger sizes | 5k / 10k returned `NO_LB_ROUTE` | Execution readiness is size-specific. |
+| Pool telemetry | About $3.25k liquidity and $708 24h volume | Telemetry is useful context, but not a substitute for executable quote depth. |
+| xChange / RFQ | Authenticated access required | Larger-size routing likely belongs in the RFQ layer. |
 
 ## How This Uses Mantle Agent Skills
 
